@@ -7,6 +7,16 @@ trap _trap_ctrl_c INT;
 #######################################################################
 #######################################################################
 #######################################################################
+#GLOBAL VARIABLES
+#######################################################################
+#######################################################################
+#######################################################################
+mysqld_is_running="";
+_MYSQLD_PID=0;
+
+#######################################################################
+#######################################################################
+#######################################################################
 #INITIALIZATION
 #######################################################################
 #######################################################################
@@ -73,14 +83,76 @@ exit $1;
 #######################################################################
 function is_mysqld_running {
 #######################################################################
-echo;
-echo "============================================================";
-echo "is_mysqld_running....";
-echo "============================================================";
-echo;
-_mysql_is_running=$(ps -ef|grep mysqld);
+_mintty_mysqld_pid=$1; # it was started in separate window
 
-if [ "$_mysql_is_running" != "" ];
+echo;
+echo "============================================================";
+echo "is_mysqld_running....   $_mintty_mysqld_pid";
+echo "============================================================";
+echo;
+
+echo;
+#### if started inside a mintty, it takes time to show in process list
+if [ "$_mintty_mysqld_pid" != "" ];
+then
+	echo;
+	echo "============================================================";
+	echo ".......is_mysqld_running in ANOTHER WINDOW....";
+	echo "============================================================";
+	echo;
+
+	for i in 1 2 3 4 5;
+	do
+		#ps -ef;
+		_PPPID=$(ps -ef | awk '{print $3}'|grep $_mintty_mysqld_pid);
+		if [ "$_PPPID" != "" ];
+		then
+			#echo "MINTTY_PID=$_mintty_mysqld_pid        PPID=$_PPPID     BASHPID=$_BASHPID";
+
+			_BASHPID=$(ps -ef | grep -E "$_PPPID.*bash"| awk '{print $2}');
+
+			#echo "MINTTY_PID=$_mintty_mysqld_pid        PPID=$_PPPID     BASHPID=$_BASHPID";
+
+			if [ "$_BASHPID" != "" ];
+			then
+
+				_MYSQLD=$(ps -ef | grep -E "$_BASHPID.*mysqld");
+
+				#echo "MINTTY_PID=$_mintty_mysqld_pid        PPID=$_PPPID     BASHPID=$_BASHPID      MYSQLD=$_MYSQLD";
+
+				if [ "$_MYSQLD" != "" ];
+				then
+					mysqld_is_running=$_MYSQLD;
+					_MYSQLD_PID=$(echo $_MYSQLD | awk '{print $2}');
+					#echo " [ $mysqld_is_running ]  [ $_MYSQLD_PID ] ";
+					break;
+				fi;
+			fi;
+		fi;
+
+		sleep 1;
+	done;
+
+	echo;
+	echo "============================================================";
+	echo ".......DONE checking is_mysqld_running in ANOTHER WINDOW.";
+	echo "============================================================";
+	echo;
+
+else
+
+	echo;
+	echo "============================================================";
+	echo ".......simple check is_mysqld_running ........";
+	echo "============================================================";
+	echo;
+
+	mysqld_is_running=$(ps -ef|grep mysqld);
+fi;
+
+
+
+if [ "$mysqld_is_running" != "" ];
 then
 	echo "============================================================";
 	echo "YES mysqld is RUNNING....";
@@ -103,9 +175,9 @@ fi;
 function shutdown_mysqld {
 #######################################################################
 is_mysqld_running;
-rtn=$?
+mysqld_is_running=$?;
 
-if [ $rtn -eq 1 ];
+if [ $mysqld_is_running -eq 1 ];
 then
 
 	echo;echo;
@@ -115,6 +187,9 @@ then
 	echo;
 	mysqladmin.exe -h 127.0.0.1 -u root shutdown
 	fg 2>/dev/null;
+	wait $_MYSQLD_PID;
+	is_mysqld_running;
+	mysqld_is_running=$?;
 fi;
 
 #######################################################################
@@ -143,9 +218,9 @@ function start_mysqld {
 #######################################################################
 mode=$1;
 is_mysqld_running;
-rtn=$?
+mysqld_is_running=$?;
 
-if [ $rtn -eq 0 ];
+if [ $mysqld_is_running -eq 0 ];
 then
 	echo "============================================================";
 	echo "Starting mysqld ....";
@@ -178,6 +253,22 @@ then
 			-R s \
 			-e $MYTOOLS/my-tools-run-mysql-in-window.sh > $SETTINGS/MYSQL-SIZE-POS.txt 2>/dev/null &
 
+		MINTTY_MYSQLD_PID=$!;
+		is_mysqld_running $MINTTY_MYSQLD_PID;
+		mysqld_is_running=$?;
+
+		if [ $mysqld_is_running -eq 1 ];
+		then
+			echo "============================================================";
+			echo "mysqld STARTED in another window.";
+			echo "============================================================";
+		else
+			echo "============================================================";
+			echo "ERROR: Failed to START mysqld in another window.";
+			echo "============================================================";
+			read -p "Press <ENTER>:"
+		fi;
+
 	elif [ "$mode" = "no_output" ];
 	then
 		echo "============================================================";
@@ -201,7 +292,7 @@ fi
 
 return 0;
 #######################################################################
-} # end function _exit
+} # end function start_mysqld
 #######################################################################
 
 
@@ -385,6 +476,10 @@ fi
 
 while [ 1 ];
 do
+	####  change colors  (Red,Blue,Green) in comma-separated-decimal
+	echo -ne '\e]10;200,255,200\a' # foreground 
+	echo -ne '\e]11;20,0,10\a' # background 
+	echo -ne '\e]12;0,255,0\a' # cursor
 
 tables=$(mysql -h 127.0.0.1 -u root << MYSQL
 use $selected_database;
@@ -508,6 +603,10 @@ selected_database_idx=$1;
 selected_database="";
 while [ 1 ];
 do
+	####  change colors  (Red,Blue,Green) in comma-separated-decimal
+	echo -ne '\e]10;200,255,200\a' # foreground 
+	echo -ne '\e]11;5,35,15\a' # background 
+	echo -ne '\e]12;0,255,0\a' # cursor
 
 # a HERE DOCUMENT, output into a local Bash variable 'databases'.
 databases=$(mysql -h 127.0.0.1 -u root << MYSQL
@@ -574,10 +673,17 @@ return 0;
 #######################################################################
 function mysql_show_databases_menu {
 #######################################################################
-if [ $rtn -eq 0 ]; then return 0; fi;
+is_mysqld_running;
+mysqld_is_running=$?;
+if [ $mysqld_is_running -eq 0 ]; then return 0; fi;
 
 while [ 1 ];
 do
+	####  change colors  (Red,Blue,Green) in comma-separated-decimal
+	echo -ne '\e]10;200,255,200\a' # foreground 
+	echo -ne '\e]11;10,30,20\a' # background 
+	echo -ne '\e]12;0,255,0\a' # cursor
+
 
 # a HERE DOCUMENT, output into a local Bash variable 'databases'.
 databases=$(mysql -h 127.0.0.1 -u root << MYSQL
@@ -643,15 +749,20 @@ function mysql_menu {
 #######################################################################
 while [ 1 ];
 do
+	####  change colors  (Red,Blue,Green) in comma-separated-decimal
+	echo -ne '\e]10;255,255,255\a' # foreground 
+	echo -ne '\e]11;10,20,30\a' # background 
+	echo -ne '\e]12;0,255,0\a' # cursor
+
 	is_mysqld_running;
-	rtn=$?
+	mysqld_is_running=$?
 
 	echo; echo;
 	echo "|=============================================|"
 	echo "|             MySQL Menu                      |"
 	echo "|=============================================|"
 
-	if [ $rtn -eq 0 ];
+	if [ $mysqld_is_running -eq 0 ];
 	then
 
 	echo "|st) Start MySQL       (outputs this window)  |"
@@ -716,6 +827,15 @@ function main_menu {
 #######################################################################
 while [ 1 ];
 do
+	####  change colors  (Red,Blue,Green) in hexadecimal
+	#echo -ne '\e]10;#000000\a' # foreground 
+	#echo -ne '\e]11;#C0C0C0\a' # background 
+	#echo -ne '\e]12;#00FF00\a' # cursor
+
+	####  change colors  (Red,Blue,Green) in comma-separated-decimal
+	echo -ne '\e]10;255,255,255\a' # foreground 
+	echo -ne '\e]11;30,20,10\a' # background 
+	echo -ne '\e]12;0,255,0\a' # cursor
 	echo; echo;
 	echo "|=============================================|"
 	echo "|              Main Menu                      |"
